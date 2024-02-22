@@ -69,8 +69,7 @@ from matplotlib.patches import Polygon, Rectangle
 import json
 from types import SimpleNamespace
 from collections import namedtuple
-
-
+from scipy import signal
 
 import seaborn as sns; sns.set()
 plt.style.use('seaborn-white')
@@ -373,8 +372,8 @@ def correcttrend(title, volume, settings):
     from scipy import signal
     
     vol = volume.squeeze()
-    peaks = signal.find_peaks((vol*-1)+max(vol), height=settings.processing.mechanics.volumetrendpeakminheight, distance=settings.processing.mechanics.volumetrendpeakmindistance * settings.input.format.samplingfrequency)[0]
-
+    peaks = signal.find_peaks((vol*-1)+max(vol), distance = settings.processing.mechanics.volumetrendpeakmindistance * settings.input.format.samplingfrequency, 
+                                                 prominence = settings.processing.mechanics.volumetrendpeakminprominence)[0]
     fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(21,29.7))
     title = title + " - Volume trend adjustment (" + settings.processing.mechanics.volumetrendadjustmethod + ")"
     plt.suptitle(title, fontsize=48)
@@ -402,12 +401,21 @@ def correcttrend(title, volume, settings):
 
 def trim(timecol, flow, volume, poes, pgas, pdi, emgcolumns, settings):
     startix = np.argmax(flow <= 0)
+    if settings.processing.mechanics.calculateic:
+        peaks = signal.find_peaks((volume*-1)+max(volume), prominence=settings.processing.mechanics.volumetrendpeakminprominence, 
+                                                           distance=settings.processing.mechanics.volumetrendpeakmindistance * settings.input.format.samplingfrequency)[0]
+        # plt.plot(volume)
+        # plt.plot(peaks, volume[peaks], "x", markersize=20)
+        # plt.show()
+        endix = peaks[-1]-25
+        print(endix)
+    else:
+        posflow = np.argwhere(flow >= 0)
+        endix = posflow[:,0][len(posflow[:,0])-1]
+        print(endix)
     
-    posflow = np.argwhere(flow >= 0)
-    endix = posflow[:,0][len(posflow[:,0])-1]
-    
-    return timecol[startix:endix], flow[startix:endix], volume[startix:endix], poes[startix:endix], pgas[startix:endix], pdi[startix:endix], emgcolumns[startix:endix], startix, endix
 
+    return timecol[startix:endix], flow[startix:endix], volume[startix:endix], poes[startix:endix], pgas[startix:endix], pdi[startix:endix], emgcolumns[startix:endix], startix, endix
 def ignorebreaths(curfile, settings):
     allignore = settings.processing.mechanics.excludebreaths
     d = dict(allignore)
@@ -766,6 +774,41 @@ def calcptp(pressure, bcnt, vefactor, samplingfreq):
     ptp = integral * bcnt * vefactor
 
     return ptp, integral
+
+def calculateic(volume, file, settings):
+    """
+    corrects drift and trend for the IC breaths, does not include final expiration
+    before the IC to account for participant changes in breathing 
+    """
+    vol = volume.squeeze()
+
+    peaks = signal.find_peaks((vol*-1), distance=500, prominence=0.25)[0]
+    peaks = peaks[:len(peaks)-1]
+    
+    # f = sp.interpolate.interp1d(peaks, vol[peaks], 'linear', fill_value="extrapolate")
+    # peaksresampled = f(np.linspace(0, vol.size-1, vol.size))
+    
+    z = np.polyfit(peaks, vol[peaks], 1)
+    p = np.poly1d(z)
+    
+    peaksresampled = p(np.linspace(0, vol.size-1, vol.size))
+    iccorvol = volume - peaksresampled
+    # fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 10))
+    # axes[0].plot(peaks, p(peaks))
+    # axes[0].plot(volume)
+    # axes[0].plot(peaks, vol[peaks], "x", markersize=20)
+    # axes[1].plot(volume, linewidth=1.5)
+    # axes[1].plot(peaksresampled, linewidth=1.5)
+    # axes[2].plot(iccorvol)
+    # axes[2].plot(np.zeros(iccorvol.size), '--', linewidth=1.5)
+    
+    # savefile = pjoin(output_folder, "ic plots", str(20*count) + "W" + ".pdf")
+    # fig.savefig(savefile) 
+    
+    icpeak = signal.find_peaks((iccorvol), distance=500, prominence=0.25)[0]
+    ic = iccorvol[icpeak][-1]
+
+    return ic
 
 def calculatewob(breath, bcnt, vefactor, avgvolumein, avgvolumeex, avgpoesin, avgpoesex, settings):
     WOBUNITCHANGEFACTOR = 98.0638/1000 #Multiplication factor to change cmH2O to Joule;  Pa = J / m3.
@@ -1334,6 +1377,9 @@ def analyse(usersettings):
 
         timecolraw = np.arange(0, len(flowraw), dtype=int) / settings.input.format.samplingfrequency
         
+        if settings.processing.mechanics.calculateic:
+            ic = calculateic(volumeraw, file, settings)
+
         if (settings.output.diagnostics.savedataviewraw):
             print('\t\tSaving raw data plots...')
             saverawplots("Flow, volume and pressures (raw data)", ntpath.basename(file), [flowraw, volumeraw, poesraw, pgasraw, pdiraw], 
@@ -1562,6 +1608,7 @@ def analyse(usersettings):
             print('\t\tSaving individual breath data...')
         
             av = savedataindividual(filename, breathmechswob, settings)
+            av['ic'] = ic
                
             if len(averagecalcs) > 0:
                 averagecalcs = pd.concat([averagecalcs, av])
