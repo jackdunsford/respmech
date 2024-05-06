@@ -404,11 +404,7 @@ def trim(timecol, flow, volume, poes, pgas, pdi, emgcolumns, settings):
     if settings.processing.mechanics.calculateic:
         peaks = signal.find_peaks((volume*-1)+max(volume), prominence=settings.processing.mechanics.volumetrendpeakminprominence, 
                                                            distance=settings.processing.mechanics.volumetrendpeakmindistance * settings.input.format.samplingfrequency)[0]
-        # plt.plot(volume)
-        # plt.plot(peaks, volume[peaks], "x", markersize=20)
-        # plt.show()
         endix = peaks[-1]-25
-        print(endix)
     else:
         posflow = np.argwhere(flow >= 0)
         endix = posflow[:,0][len(posflow[:,0])-1]
@@ -520,9 +516,24 @@ def separateintobreathsbyvolume(filename, timecol, flow, volume, poes, pgas, pdi
     peakheight = settings.processing.mechanics.peakheight
     peakdistance = settings.processing.mechanics.peakdistance
     peakwidth = settings.processing.mechanics.peakwidth
-    inpeaks, _ = signal.find_peaks(invol, height=peakheight, distance=peakdistance*samplingfrequency, width=peakwidth*samplingfrequency)
-    expeaks, _ = signal.find_peaks(exvol, height=peakheight, distance=peakdistance*samplingfrequency, width=peakwidth*samplingfrequency) 
+    peakprominence = settings.processing.mechanics.peakprominence
+    # inpeaks, _ = signal.find_peaks(invol, height=peakheight, distance=peakdistance*samplingfrequency, width=peakwidth*samplingfrequency)
+    # expeaks, _ = signal.find_peaks(exvol, height=peakheight, distance=peakdistance*samplingfrequency, width=peakwidth*samplingfrequency)
+    inpeaks, _ = signal.find_peaks(invol, height=peakheight, distance=peakdistance*samplingfrequency, prominence=peakprominence)
+    expeaks, _ = signal.find_peaks(exvol, height=peakheight, distance=peakdistance*samplingfrequency, prominence=peakprominence)   
 
+    # fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 10))
+    # axes[0].plot(inpeaks, p(peaks))
+    # axes[0].plot(volume)
+    # axes[0].plot(inpeaks, volume[inpeaks], "x", markersize=20)
+    # axes[1].plot(volume)
+    # axes[1].plot(expeaks, volume[expeaks], "x", markersize=20)
+    
+    # axes[1].plot(volume, linewidth=1.5)
+    # axes[1].plot(peaksresampled, linewidth=1.5)
+    # axes[2].plot(iccorvol)
+    # axes[2].plot(np.zeros(iccorvol.size), '--', linewidth=1.5)
+    # print(inpeaks)
     for inpeak in inpeaks:
         
         breathcnt += 1
@@ -543,7 +554,6 @@ def separateintobreathsbyvolume(filename, timecol, flow, volume, poes, pgas, pdi
        
         exp = {'time':timecol[exstart:exend].squeeze(), 'flow':flow[exstart:exend].squeeze(), 'poes':poes[exstart:exend].squeeze(),
                    'pgas': pgas[exstart:exend].squeeze(), 'pdi':pdi[exstart:exend].squeeze(), 'volume':volume[exstart:exend].squeeze()}
-        
         insp = {'time':timecol[instart:inend].squeeze(), 'flow':flow[instart:inend].squeeze(), 'poes':poes[instart:inend].squeeze(), 
                     'pgas':pgas[instart:inend].squeeze(), 'pdi':pdi[instart:inend].squeeze(), 'volume':volume[instart:inend].squeeze()}
 
@@ -780,6 +790,7 @@ def calculateic(volume, file, settings):
     corrects drift and trend for the IC breaths, does not include final expiration
     before the IC to account for participant changes in breathing 
     """
+    title = ntpath.basename(file)
     vol = volume.squeeze()
 
     peaks = signal.find_peaks((vol*-1), distance=500, prominence=0.25)[0]
@@ -793,17 +804,20 @@ def calculateic(volume, file, settings):
     
     peaksresampled = p(np.linspace(0, vol.size-1, vol.size))
     iccorvol = volume - peaksresampled
-    # fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 10))
-    # axes[0].plot(peaks, p(peaks))
-    # axes[0].plot(volume)
-    # axes[0].plot(peaks, vol[peaks], "x", markersize=20)
-    # axes[1].plot(volume, linewidth=1.5)
-    # axes[1].plot(peaksresampled, linewidth=1.5)
-    # axes[2].plot(iccorvol)
-    # axes[2].plot(np.zeros(iccorvol.size), '--', linewidth=1.5)
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 10))
+    axes[0].plot(peaks, p(peaks))
+    axes[0].plot(volume)
+    axes[0].plot(peaks, vol[peaks], "x", markersize=20)
+    axes[1].plot(volume, linewidth=1.5)
+    axes[1].plot(peaksresampled, linewidth=1.5)
+    axes[2].plot(iccorvol)
+    axes[2].plot(np.zeros(iccorvol.size), '--', linewidth=1.5)
     
-    # savefile = pjoin(output_folder, "ic plots", str(20*count) + "W" + ".pdf")
-    # fig.savefig(savefile) 
+    title = title + " - IC Volume trend adjustment"
+    plt.suptitle(title, fontsize=48)
+    savefile = pjoin(settings.output.outputfolder, "plots", title + ".pdf")
+    plt.figtext(0.99, 0.01, CREATED + " on " + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), horizontalalignment='right')       
+    fig.savefig(savefile) 
     
     icpeak = signal.find_peaks((iccorvol), distance=500, prominence=0.25)[0]
     ic = iccorvol[icpeak][-1]
@@ -876,7 +890,7 @@ def calculatebreathmechsandwob(breaths, bcnt, vefactor, avgvolumein, avgvolumeex
 
 def resample(x, settings, kind='linear'):
     x = x.squeeze()
-    n = settings.processing.wob.avgresamplingobs
+    n = settings.processing.mechanics.avgresamplingobs
     f = sp.interpolate.interp1d(np.linspace(0, 1, x.size), x, kind)
     return f(np.linspace(0, 1, n))
 
@@ -890,6 +904,8 @@ def calculateaveragebreaths(breaths, settings):
 
     volumein = np.empty([resamplingobs, nobreaths])
     volumeex = np.empty([resamplingobs, nobreaths])
+    flowin = np.empty([resamplingobs, nobreaths])
+    flowex = np.empty([resamplingobs, nobreaths])
     poesin = np.empty([resamplingobs, nobreaths])
     poesex = np.empty([resamplingobs, nobreaths])
         
@@ -900,6 +916,8 @@ def calculateaveragebreaths(breaths, settings):
             try:
                 volumein[:,nobreaths] = resample(breath["inspiration"]["volume"], settings)
                 volumeex[:,nobreaths] = resample(breath["expiration"]["volume"], settings)
+                flowin[:,nobreaths] = resample(breath["inspiration"]["flow"], settings)
+                flowex[:,nobreaths] = resample(breath["expiration"]["flow"], settings)
                 poesin[:,nobreaths] = resample(breath["inspiration"]["poes"], settings)
                 poesex[:,nobreaths] = resample(breath["expiration"]["poes"], settings)   
             except:
@@ -907,10 +925,12 @@ def calculateaveragebreaths(breaths, settings):
             
     avgvolumein = np.mean(volumein, axis=1)
     avgvolumeex = np.mean(volumeex, axis=1)
+    avgflowin = np.mean(flowin, axis=1)
+    avgflowex = np.mean(flowex, axis=1)
     avgpoesin = np.mean(poesin, axis=1)
     avgpoesex = np.mean(poesex, axis=1)
         
-    return avgvolumein, avgvolumeex, avgpoesin, avgpoesex
+    return avgvolumein, avgvolumeex, avgflowin, avgflowex, avgpoesin, avgpoesex
 
 def calculateentropy(breath, settings, phase = None):
     
@@ -1149,6 +1169,7 @@ def savedataaverage(totals, settings):
     
     writer.save()
     
+
 def getbreathdata(breath, datacol, colsprefix, appendcols, colsettings):
     df = pd.DataFrame(breath[datacol]).transpose()
     cols = [colsprefix +  str(colsettings[x]) for x in range(0, len(colsettings))]
@@ -1252,6 +1273,7 @@ def savedataindividual(file, breaths, settings):
     writer.save()
     
     return ret
+
 
 def getprocesseddata(breaths, settings):
     
@@ -1377,8 +1399,7 @@ def analyse(usersettings):
 
         timecolraw = np.arange(0, len(flowraw), dtype=int) / settings.input.format.samplingfrequency
         
-        if settings.processing.mechanics.calculateic:
-            ic = calculateic(volumeraw, file, settings)
+       
 
         if (settings.output.diagnostics.savedataviewraw):
             print('\t\tSaving raw data plots...')
@@ -1387,9 +1408,28 @@ def analyse(usersettings):
                          [r'$L/s$', r'$L$', r'$cm H_2O$', r'$cm H_2O$', r'$cm H_2O$'],
                          settings)
 
+        print('\t\tDrift correcting...')
+        uncorvol = volumeraw
+        zerovol = zero(uncorvol)
+        
+        if settings.processing.mechanics.correctvolumedrift:
+            driftvol = correctdrift(zerovol, settings)
+        else:
+            driftvol = zerovol
+            
+        if settings.processing.mechanics.correctvolumetrend:
+            trendcorvol = correcttrend(ntpath.basename(file), driftvol, settings)
+            corvolume = trendcorvol
+        else:
+            corvolume = driftvol
+
+        if settings.processing.mechanics.calculateic:
+            ic = calculateic(volumeraw, file, settings)
+
         print('\t\tTrimming to whole breaths...')
         try:
-            timecol, flow, volume, poes, pgas, pdi, emgcolumns, startix, endix = trim(timecolraw, flowraw, volumeraw, poesraw, pgasraw, pdiraw, emgcolumnsraw, settings)
+            timecol, flow, volume, poes, pgas, pdi, emgcolumns, startix, endix = trim(timecolraw, flowraw, corvolume, poesraw, pgasraw, pdiraw, emgcolumnsraw, settings)
+            # print(type(volume))
         except:
             raise ValueError("Could not trim data to whole breaths. Please ensure that the specified flow channel is correct.")
 
@@ -1451,27 +1491,14 @@ def analyse(usersettings):
         #Add any post processing that should be performed on the entire data file
         #here.
         
-        print('\t\tDrift correcting...')
-        uncorvol = volume
-        zerovol = zero(volume)
-        
-        if settings.processing.mechanics.correctvolumedrift:
-            driftvol = correctdrift(zerovol, settings)
-        else:
-            driftvol = zerovol
-            
-        if settings.processing.mechanics.correctvolumetrend:
-            trendcorvol = correcttrend(ntpath.basename(file), driftvol, settings)
-            volume = trendcorvol
-        else:
-            volume = driftvol
+
 
         print('\t\tDetecting breathing cycles...')
         if settings.processing.mechanics.separateby == "volume":
             breaths = separateintobreaths("volume", filename, timecol, flow, volume, poes, pgas, pdi, entropycolumns, emgcolumns, settings)
         else:
             breaths = separateintobreaths("flow", filename, timecol, flow, volume, poes, pgas, pdi, entropycolumns, emgcolumns, settings)
-
+        print('\t\tDetected breathing cycles')
         if (settings.output.diagnostics.savedataviewtrimmed):
             print('\t\tSaving trimmed data plots...')
             saverawplots("Trimmed data", ntpath.basename(file), [flow, volume, poes, pgas, pdi], 
@@ -1590,7 +1617,7 @@ def analyse(usersettings):
                 bcnt = bc[1]
                 break
        
-        avgvolumein, avgvolumeex, avgpoesin, avgpoesex = calculateaveragebreaths(breaths, settings)
+        avgvolumein, avgvolumeex, avgflowin, avgflowex, avgpoesin, avgpoesex = calculateaveragebreaths(breaths, settings)
         
         breathmechswob = calculatebreathmechsandwob(breaths, bcnt, vefactor, avgvolumein, avgvolumeex, avgpoesin, avgpoesex, settings)
   
@@ -1657,6 +1684,7 @@ defaultsettings = """{
             "peakheight": 0.1,
             "peakdistance": 0.1,
             "peakwidth": 0.5,
+            "peakprominence": 0.25,
             "inverseflow": false,
             "integratevolumefromflow": false,
             "inversevolume": false,
@@ -1670,7 +1698,7 @@ defaultsettings = """{
         },
         "wob": {
             "calcwobfrom": "average",
-            "avgresamplingobs": 500
+            "avgresamplingobs": 100
         },
         "emg": {
             "rms_s": 0.050,
